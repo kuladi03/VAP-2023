@@ -1,0 +1,719 @@
+#1
+
+import pandas as pd
+import tensorflow as tf
+from tensorflow.keras import layers, models
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
+import matplotlib.pyplot as plt
+from sklearn.metrics import classification_report, confusion_matrix
+
+# Load dataset
+df = pd.read_csv("Assets/diabetes.csv")
+
+# Check for missing values
+if df.isnull().sum().any():
+    raise ValueError("Dataset contains missing values. Please handle them before training.")
+
+# Prepare features and target
+X = df.iloc[:, 0:8]
+y = df["Outcome"]
+
+# Standardize the data
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+
+# Split data into training and test sets
+X_train, X_test, Y_train, Y_test = train_test_split(X_scaled, y, test_size=0.1, random_state=42)
+
+# Define a function to build the neural network model
+def build_model(input_shape):
+    model = models.Sequential([
+        layers.Dense(100, activation="relu", input_shape=(input_shape,)),
+        layers.Dropout(0.3),
+        layers.Dense(75, activation="relu"),
+        layers.Dropout(0.3),
+        layers.Dense(50, activation="relu"),
+        layers.Dropout(0.3),
+        layers.Dense(25, activation="relu"),
+        layers.Dropout(0.2),
+        layers.Dense(12, activation="relu"),
+        layers.Dense(1, activation="sigmoid")
+    ])
+    model.compile(
+        optimizer=tf.keras.optimizers.Adam(learning_rate=0.001),
+        loss="binary_crossentropy",
+        metrics=["accuracy"]
+    )
+    return model
+
+# Build and summarize the model
+model = build_model(X_train.shape[1])
+model.summary()
+
+# Early stopping and learning rate reduction callbacks
+early_stop = EarlyStopping(monitor='val_loss', patience=30, restore_best_weights=True)
+reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=10, min_lr=1e-5)
+
+# Train the model
+history = model.fit(
+    X_train, Y_train, 
+    epochs=1500, 
+    validation_data=(X_test, Y_test), 
+    callbacks=[early_stop, reduce_lr]
+)
+
+# Evaluate the model
+test_loss, test_acc = model.evaluate(X_test, Y_test, verbose=2)
+print(f"\nTest Loss: {test_loss:.4f}")
+print(f"Test Accuracy: {test_acc:.4f}")
+
+# Generate predictions
+y_pred = (model.predict(X_test) > 0.5).astype("int32")
+
+# Print classification report
+print("\nClassification Report:\n", classification_report(Y_test, y_pred, target_names=["Non-Diabetic", "Diabetic"]))
+
+# Plot Training Loss and Accuracy
+def plot_training_history(history):
+    plt.figure(figsize=(12, 5))
+
+    # Plot Loss
+    plt.subplot(1, 2, 1)
+    plt.plot(history.history['loss'], label='Training Loss', color='b')
+    plt.plot(history.history['val_loss'], label='Validation Loss', color='orange')
+    plt.title('Loss over Epochs')
+    plt.xlabel('Epochs')
+    plt.ylabel('Loss')
+    plt.legend(loc='upper right')
+    plt.ylim([0, 1.0])
+
+    # Plot Accuracy
+    plt.subplot(1, 2, 2)
+    plt.plot(history.history['accuracy'], label='Training Accuracy', color='g')
+    plt.plot(history.history['val_accuracy'], label='Validation Accuracy', color='red')
+    plt.title('Accuracy over Epochs')
+    plt.xlabel('Epochs')
+    plt.ylabel('Accuracy')
+    plt.legend(loc='lower right')
+    plt.ylim([0.6, 1.0])
+
+    # Show both plots
+    plt.tight_layout()
+    plt.show()
+
+plot_training_history(history)
+
+# Display confusion matrix
+conf_matrix = confusion_matrix(Y_test, y_pred)
+print("\nConfusion Matrix:\n", conf_matrix)
+
+
+#2 - MSIST
+
+import tensorflow as tf
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, Flatten, Dropout
+from tensorflow.keras.utils import to_categorical
+from tensorflow.keras.datasets import mnist
+import numpy as np
+import tkinter as tk
+from tkinter import filedialog
+from PIL import Image, ImageEnhance, ImageOps, ImageTk
+
+# Load and preprocess MNIST data
+(x_train, y_train), (x_test, y_test) = mnist.load_data()
+x_train = x_train.astype("float32") / 255.0
+x_test = x_test.astype("float32") / 255.0
+y_train = to_categorical(y_train, 10)
+y_test = to_categorical(y_test, 10)
+
+# Define the MNIST model
+mnist_model = Sequential([
+    Flatten(input_shape=(28, 28, 1)),  # Adding channel dimension
+    Dense(128, activation='relu'),
+    Dropout(0.2),
+    Dense(64, activation='relu'),
+    Dropout(0.2),
+    Dense(10, activation='softmax')
+])
+
+mnist_model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+mnist_model.fit(x_train[..., np.newaxis], y_train, validation_data=(x_test[..., np.newaxis], y_test), epochs=10, batch_size=128)
+
+# GUI function to upload and predict on MNIST model
+def upload_and_predict_mnist():
+    file_path = filedialog.askopenfilename()
+    if file_path:
+        # Load image and ensure it's in grayscale
+        img = Image.open(file_path).convert("L")  # Convert to grayscale
+
+        # Enhance contrast to ensure the digit stands out
+        enhancer = ImageEnhance.Contrast(img)
+        img = enhancer.enhance(2.0)
+
+        # Resize to 28x28 and invert colors if necessary
+        img_resized = img.resize((28, 28))
+        img_resized = ImageOps.invert(img_resized) if np.array(img_resized).mean() > 128 else img_resized
+
+        # Display uploaded image on the screen
+        img_display = ImageTk.PhotoImage(img_resized.resize((140, 140)))  # Resize for better display
+        image_label.config(image=img_display)
+        image_label.image = img_display
+
+        # Normalize and reshape for model input
+        img_array = np.array(img_resized).astype("float32") / 255.0
+        img_array = img_array.reshape(1, 28, 28, 1)  # Add channel dimension for grayscale
+
+        # Make prediction and display result
+        prediction = np.argmax(mnist_model.predict(img_array), axis=1)
+        result_label.config(text=f"Predicted Digit: {prediction[0]}")
+
+# Tkinter GUI setup
+root = tk.Tk()
+root.title("Digit Recognition - MNIST")
+
+# GUI elements
+upload_button = tk.Button(root, text="Upload Digit Image", command=upload_and_predict_mnist)
+upload_button.pack()
+
+# Label for displaying uploaded image
+image_label = tk.Label(root)
+image_label.pack()
+
+# Label for displaying prediction result
+result_label = tk.Label(root, text="Prediction will appear here")
+result_label.pack()
+
+root.mainloop()
+
+#2-CIFAR-10 && 3
+
+from tensorflow.keras.layers import Conv2D, MaxPooling2D
+from tensorflow.keras.datasets import cifar10
+from tensorflow.keras.utils import to_categorical
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, Flatten, Dropout
+from tensorflow.keras.utils import to_categorical  # Add this import line
+import numpy as np
+import tkinter as tk
+from tkinter import filedialog
+from PIL import Image , ImageTk
+
+# Load and preprocess CIFAR-10 data
+(x_train, y_train), (x_test, y_test) = cifar10.load_data()
+x_train = x_train.astype("float32") / 255.0
+x_test = x_test.astype("float32") / 255.0
+y_train = to_categorical(y_train, 10)
+y_test = to_categorical(y_test, 10)
+
+# Define the CIFAR-10 model
+cifar_model = Sequential([
+    Conv2D(32, (3, 3), activation='relu', input_shape=(32, 32, 3)),
+    MaxPooling2D((2, 2)),
+    Dropout(0.2),
+    Conv2D(64, (3, 3), activation='relu'),
+    MaxPooling2D((2, 2)),
+    Dropout(0.2),
+    Flatten(),
+    Dense(128, activation='relu'),
+    Dropout(0.3),
+    Dense(10, activation='softmax')
+])
+
+cifar_model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+cifar_model.fit(x_train, y_train, validation_data=(x_test, y_test), epochs=5, batch_size=64)
+
+cifar_labels = ["airplane", "automobile", "bird", "cat", "deer", "dog", "frog", "horse", "ship", "truck"]
+
+# GUI for uploading an image and testing the CIFAR-10 model
+def upload_and_predict_cifar():
+    file_path = filedialog.askopenfilename()
+    if file_path:
+        # Load image and resize to 32x32
+        img = Image.open(file_path).convert("RGB")  # CIFAR-10 expects RGB images
+        img_resized = img.resize((32, 32))
+
+        # Display uploaded image on the screen
+        img_display = ImageTk.PhotoImage(img_resized.resize((140, 140)))  # Resize for better display in GUI
+        image_label.config(image=img_display)
+        image_label.image = img_display
+
+        # Normalize and reshape for model input
+        img_array = np.array(img_resized).astype("float32") / 255.0
+        img_array = img_array.reshape(1, 32, 32, 3)  # CIFAR-10 input shape
+
+        # Make prediction and display result
+        prediction = np.argmax(cifar_model.predict(img_array), axis=1)
+        result_label.config(text=f"Predicted Class: {cifar_labels[prediction[0]]}")
+
+# Tkinter GUI setup
+root = tk.Tk()
+root.title("Image Recognition - CIFAR-10")
+
+# GUI elements
+upload_button = tk.Button(root, text="Upload Image", command=upload_and_predict_cifar)
+upload_button.pack()
+
+# Label for displaying uploaded image
+image_label = tk.Label(root)
+image_label.pack()
+
+# Label for displaying prediction result
+result_label = tk.Label(root, text="Prediction will appear here")
+result_label.pack()
+
+root.mainloop()
+
+#4
+
+import os
+import pickle
+import numpy as np
+import time
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Convolution2D, MaxPool2D, Flatten, Dense
+from tensorflow.keras.preprocessing import image
+
+# Set folder paths
+TRAINING_IMAGE_PATH = 'FaceRecog/Final Training Images'
+
+# Pre-processing transformations for training data
+train_datagen = ImageDataGenerator(
+    shear_range=0.1,
+    zoom_range=0.1,
+    horizontal_flip=True
+)
+
+# Pre-processing transformations for testing data (no augmentation)
+test_datagen = ImageDataGenerator()
+
+# Load training data
+training_set = train_datagen.flow_from_directory(
+    TRAINING_IMAGE_PATH,
+    target_size=(64, 64),
+    batch_size=32,
+    class_mode='categorical'
+)
+
+# Load testing data
+test_set = test_datagen.flow_from_directory(
+    TRAINING_IMAGE_PATH,
+    target_size=(64, 64),
+    batch_size=32,
+    class_mode='categorical'
+)
+
+# Print class indices for reference
+print("Class Indices:", test_set.class_indices)
+
+# Create a mapping of face labels to numeric IDs
+class_indices = training_set.class_indices
+result_map = {value: key for key, value in class_indices.items()}
+
+# Save the mapping to a file for future reference
+with open("ResultsMap.pkl", 'wb') as file:
+    pickle.dump(result_map, file)
+
+print("Mapping of Face and its ID:", result_map)
+output_neurons = len(result_map)
+print(f'\nNumber of Output Neurons: {output_neurons}')
+
+# Initialize and build the CNN model
+def build_cnn(input_shape, output_neurons):
+    model = Sequential()
+    
+    # Convolutional Layer 1
+    model.add(Convolution2D(32, kernel_size=(5, 5), strides=(1, 1), 
+                            input_shape=input_shape, activation='relu'))
+    # Max Pooling 1
+    model.add(MaxPool2D(pool_size=(2, 2)))
+    
+    # Convolutional Layer 2
+    model.add(Convolution2D(64, kernel_size=(5, 5), strides=(1, 1), activation='relu'))
+    # Max Pooling 2
+    model.add(MaxPool2D(pool_size=(2, 2)))
+    
+    # Flatten Layer
+    model.add(Flatten())
+    
+    # Fully Connected Layers
+    model.add(Dense(64, activation='relu'))
+    model.add(Dense(output_neurons, activation='softmax'))
+    
+    # Compile the model
+    model.compile(
+        loss='categorical_crossentropy',
+        optimizer='adam',
+        metrics=["accuracy"]
+    )
+    return model
+
+# Build and compile the CNN
+cnn_model = build_cnn(input_shape=(64, 64, 3), output_neurons=output_neurons)
+
+# Train the model
+start_time = time.time()
+history = cnn_model.fit(
+    training_set,
+    steps_per_epoch=30,
+    epochs=10,
+    validation_data=test_set,
+    validation_steps=10
+)
+end_time = time.time()
+
+print(f"Training Completed in {round((end_time - start_time) / 60, 2)} minutes.")
+
+# Save the model for future use
+cnn_model.save("face_recognition_model.h5")
+print("Model Saved Successfully.")
+
+# Function to make predictions
+def predict_face(image_path, model, result_map):
+    test_image = image.load_img(image_path, target_size=(64, 64))
+    test_image = image.img_to_array(test_image)
+    test_image = np.expand_dims(test_image, axis=0)
+    
+    result = model.predict(test_image, verbose=0)
+    predicted_class = result_map[np.argmax(result)]
+    
+    print(f"Prediction: {predicted_class}")
+    return predicted_class
+
+# Test the model with a new image
+test_image_path = 'FaceRecog/Final Testing Images/face4/3face4.jpg'
+predicted_face = predict_face(test_image_path, cnn_model, result_map)
+
+
+# 5
+
+import tensorflow as tf
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, Flatten, Dropout
+from tensorflow.keras.optimizers import SGD, Adam, Adagrad, RMSprop, Nadam
+from tensorflow.keras.datasets import mnist
+from tensorflow.keras.utils import to_categorical
+import matplotlib.pyplot as plt
+import time
+
+# Load and preprocess MNIST data
+(x_train, y_train), (x_test, y_test) = mnist.load_data()
+x_train = x_train.astype("float32") / 255.0
+x_test = x_test.astype("float32") / 255.0
+y_train = to_categorical(y_train, 10)
+y_test = to_categorical(y_test, 10)
+
+# Define the neural network model
+def create_model(optimizer):
+    model = Sequential([
+        Flatten(input_shape=(28, 28)),
+        Dense(128, activation='relu'),
+        Dropout(0.2),
+        Dense(64, activation='relu'),
+        Dropout(0.2),
+        Dense(10, activation='softmax')
+    ])
+    model.compile(optimizer=optimizer, loss='categorical_crossentropy', metrics=['accuracy'])
+    return model
+
+# Optimizers to be tested
+optimizers = {
+    'SGD': SGD(),
+    'Adam': Adam(),
+    'Adagrad': Adagrad(),
+    'RMSprop': RMSprop(),
+    'Nadam': Nadam()
+}
+
+# Store results
+results = {}
+
+# Train the model with different optimizers and record time, accuracy, and loss
+for name, optimizer in optimizers.items():
+    print(f"Training with {name} optimizer...")
+    start_time = time.time()
+    
+    model = create_model(optimizer)
+    history = model.fit(x_train, y_train, validation_data=(x_test, y_test), epochs=10, batch_size=128, verbose=0)
+    
+    end_time = time.time()
+    training_time = end_time - start_time
+    
+    results[name] = {
+        'history': history,
+        'training_time': training_time
+    }
+    print(f"{name} optimizer took {training_time:.2f} seconds to converge.\n")
+
+# Plot the results (Accuracy and Loss)
+fig, axes = plt.subplots(2, 1, figsize=(10, 12))
+
+# Plot Accuracy
+for name, result in results.items():
+    axes[0].plot(result['history'].history['accuracy'], label=f"{name} Train Accuracy")
+    axes[0].plot(result['history'].history['val_accuracy'], label=f"{name} Validation Accuracy")
+axes[0].set_title('Accuracy Comparison')
+axes[0].set_xlabel('Epochs')
+axes[0].set_ylabel('Accuracy')
+axes[0].legend()
+
+# Plot Loss
+for name, result in results.items():
+    axes[1].plot(result['history'].history['loss'], label=f"{name} Train Loss")
+    axes[1].plot(result['history'].history['val_loss'], label=f"{name} Validation Loss")
+axes[1].set_title('Loss Comparison')
+axes[1].set_xlabel('Epochs')
+axes[1].set_ylabel('Loss')
+axes[1].legend()
+
+plt.tight_layout()
+plt.show()
+
+# Display training time for each optimizer
+print("Training Time for each Optimizer:")
+for name, result in results.items():
+    print(f"{name}: {result['training_time']:.2f} seconds")
+
+#6
+
+import tensorflow as tf
+from tensorflow.keras.applications import VGG16
+from tensorflow.keras.layers import Dense, Flatten, Dropout
+from tensorflow.keras.models import Model
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.datasets import cifar10
+from tensorflow.keras.utils import to_categorical
+ 
+# Load and preprocess CIFAR-10 dataset
+(x_train, y_train), (x_test, y_test) = cifar10.load_data()
+ 
+# Normalize pixel values to range 0-1
+x_train = x_train.astype('float32') / 255.0
+x_test = x_test.astype('float32') / 255.0
+ 
+# Convert labels to one-hot encoding
+y_train = to_categorical(y_train, 10)
+y_test = to_categorical(y_test, 10)
+ 
+# Load the VGG16 model without the top fully connected layers
+base_model = VGG16(weights='imagenet', include_top=False, input_shape=(32, 32, 3))
+# Freeze all the layers in the base model
+for layer in base_model.layers:
+    layer.trainable = False
+ 
+# Add custom layers on top of the base model
+x = Flatten()(base_model.output)
+x = Dense(256, activation='relu')(x)
+x = Dropout(0.5)(x)  # Add dropout for regularization
+x = Dense(128, activation='relu')(x)
+x = Dropout(0.5)(x)
+output = Dense(10, activation='softmax')(x)
+ 
+# Create the new model
+model = Model(inputs=base_model.input, outputs=output)
+ 
+# Compile the model
+model.compile(optimizer=Adam(learning_rate=0.0001), loss='categorical_crossentropy', metrics=['accuracy'])
+ 
+# Train the model
+history = model.fit(x_train, y_train, epochs=10, batch_size=64, validation_data=(x_test, y_test))
+ 
+# Evaluate the model on test set
+test_loss, test_acc = model.evaluate(x_test, y_test)
+print(f"Test accuracy: {test_acc * 100:.2f}%")
+ 
+# Plot training history
+import matplotlib.pyplot as plt
+ 
+plt.plot(history.history['accuracy'], label='Train Accuracy')
+plt.plot(history.history['val_accuracy'], label='Val Accuracy')
+plt.xlabel('Epochs')
+plt.ylabel('Accuracy')
+plt.legend()
+plt.show()
+ 
+plt.plot(history.history['loss'], label='Train Loss')
+plt.plot(history.history['val_loss'], label='Val Loss')
+plt.xlabel('Epochs')
+plt.ylabel('Loss')
+plt.legend()
+plt.show()
+
+#7
+
+# Importing necessary libraries
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.metrics import mean_absolute_error, mean_squared_error
+
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, LSTM, GRU, Bidirectional, Dropout
+
+# Load dataset
+df = pd.read_csv("Assets/BTC_USD.csv", parse_dates=['date'])
+df = df.sort_values('date')
+df.reset_index(drop=True, inplace=True)
+
+# Data Preprocessing
+# Using MinMaxScaler to scale data between 0 and 1
+scaler = MinMaxScaler()
+close_price = df[['close']].values
+scaled_close = scaler.fit_transform(close_price)
+
+# Define sequence length and prepare data sequences for RNN
+SEQ_LEN = 60  # sequence length (60 days)
+def to_sequences(data, seq_len=SEQ_LEN):
+    X, y = [], []
+    for i in range(len(data) - seq_len):
+        X.append(data[i:i + seq_len])
+        y.append(data[i + seq_len])
+    return np.array(X), np.array(y)
+
+X, y = to_sequences(scaled_close)
+
+# Reshape data for RNN input
+X = X.reshape((X.shape[0], X.shape[1], 1))
+
+# Split data into training and testing sets (80% train, 20% test)
+train_size = int(0.8 * len(X))
+X_train, X_test = X[:train_size], X[train_size:]
+y_train, y_test = y[:train_size], y[train_size:]
+
+# Model Architecture
+model = Sequential()
+
+# Adding Bidirectional LSTM layer
+model.add(Bidirectional(LSTM(64, return_sequences=True), input_shape=(X_train.shape[1], 1)))
+model.add(Dropout(0.2))
+
+# Adding GRU layer
+model.add(GRU(32, return_sequences=False))
+model.add(Dropout(0.2))
+
+# Dense layer for output
+model.add(Dense(1))
+
+# Compiling the model
+model.compile(optimizer='adam', loss='mean_squared_error')
+
+# Training the model
+history = model.fit(X_train, y_train, epochs=20, batch_size=32, validation_split=0.1)
+
+# Model evaluation
+test_loss = model.evaluate(X_test, y_test, verbose=0)
+print(f"Test Loss (MSE): {test_loss:.4f}")
+
+# Making Predictions
+predictions = model.predict(X_test)
+predicted_price = scaler.inverse_transform(predictions)
+actual_price = scaler.inverse_transform(y_test)
+
+# Plotting training and validation loss
+plt.plot(history.history['loss'], label='Train Loss')
+plt.plot(history.history['val_loss'], label='Validation Loss')
+plt.title('Model Loss')
+plt.xlabel('Epochs')
+plt.ylabel('Loss')
+plt.legend()
+plt.show()
+
+# Plotting Actual vs Predicted Prices
+plt.figure(figsize=(10, 6))
+plt.plot(actual_price, color='blue', label='Actual Price')
+plt.plot(predicted_price, color='red', label='Predicted Price')
+plt.title('Cryptocurrency Price Prediction')
+plt.xlabel('Time')
+plt.ylabel('Price')
+plt.legend()
+plt.show()
+
+#8
+
+import tensorflow as tf
+from tensorflow.keras.datasets import mnist
+from tensorflow.keras.layers import Input, Dense, Flatten, Reshape
+from tensorflow.keras.models import Model
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Load the MNIST dataset
+(x_train, _), (x_test, _) = mnist.load_data()
+
+# Preprocess the data
+x_train = x_train.astype('float32') / 255.0
+x_test = x_test.astype('float32') / 255.0
+x_train = x_train.reshape(len(x_train), 28, 28, 1)
+x_test = x_test.reshape(len(x_test), 28, 28, 1)
+
+# Define the encoder and decoder
+input_img = Input(shape=(28, 28, 1))
+
+x = Flatten()(input_img)
+encoded = Dense(128, activation='relu')(x)
+
+decoded = Dense(784, activation='sigmoid')(encoded)
+decoded = Reshape((28, 28, 1))(decoded)
+
+# Create the autoencoder model
+autoencoder = Model(input_img, decoded)
+
+# Create the encoder model
+encoder = Model(input_img, encoded)
+
+# Compile the model
+autoencoder.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+
+# Train the model
+history = autoencoder.fit(
+    x_train, x_train,
+    epochs=50,
+    batch_size=256,
+    shuffle=True,
+    validation_data=(x_test, x_test),
+    verbose=2
+)
+
+# Encode and decode some digits
+encoded_imgs = encoder.predict(x_test)
+decoded_imgs = autoencoder.predict(x_test)
+
+# Display original and decoded images
+n = 10  # Number of digits to display
+plt.figure(figsize=(20, 4))
+for i in range(n):
+    # Display original
+    ax = plt.subplot(2, n, i + 1)
+    plt.imshow(x_test[i].reshape(28, 28), cmap='gray')
+    ax.axis('off')
+
+    # Display reconstruction
+    ax = plt.subplot(2, n, i + 1 + n)
+    plt.imshow(decoded_imgs[i].reshape(28, 28), cmap='gray')
+    ax.axis('off')
+
+plt.show()
+
+# Calculate reconstruction accuracy
+threshold = 0.5  # Binary threshold for pixel values
+x_test_binary = (x_test > threshold).astype(np.float32)
+decoded_imgs_binary = (decoded_imgs > threshold).astype(np.float32)
+
+# Calculate accuracy as the proportion of matching pixels
+accuracy = np.mean(np.equal(x_test_binary, decoded_imgs_binary))
+print(f"Reconstruction Accuracy: {accuracy * 100:.2f}%")
+
+# Plot training history
+plt.figure(figsize=(10, 5))
+plt.plot(history.history['loss'], label='Training Loss')
+plt.plot(history.history['val_loss'], label='Validation Loss')
+plt.title('Training and Validation Loss')
+plt.xlabel('Epochs')
+plt.ylabel('Loss')
+plt.legend()
+plt.show()
+
